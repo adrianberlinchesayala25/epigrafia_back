@@ -78,10 +78,19 @@ predictor: Optional[AudioPredictor] = None
 
 @app.on_event("startup")
 async def startup_event():
-    """Load models on startup"""
+    """Startup event"""
+    logger.info("🚀 Starting EpigrafIA API (Lazy Loading Mode)...")
+    logger.info("   Models will be loaded on first request to save startup time.")
+
+
+def get_predictor():
+    """Lazy load the predictor"""
     global predictor
     
-    logger.info("🚀 Starting EpigrafIA API...")
+    if predictor is not None:
+        return predictor
+        
+    logger.info("🐢 Lazy loading models for first request...")
     
     # Try to find the best model first, then fall back to regular
     language_model_path = MODELS_DIR / "language_model_best.keras"
@@ -96,14 +105,14 @@ async def startup_event():
             accent_model_path=accent_model_path if accent_model_path.exists() else None
         )
         logger.info("✅ Models loaded successfully!")
+        return predictor
         
     except FileNotFoundError as e:
-        logger.warning(f"⚠️ Models not found: {e}")
-        logger.warning("   The API will start but predictions won't work.")
-        logger.warning("   Train the models first using the notebooks.")
-        
+        logger.error(f"❌ Models not found: {e}")
+        return None
     except Exception as e:
         logger.error(f"❌ Error loading models: {e}")
+        return None
 
 
 @app.on_event("shutdown")
@@ -147,10 +156,13 @@ async def health_check():
 @app.get("/api/models/status")
 async def models_status():
     """Get status of loaded models"""
+    # Don't trigger load here, just check status
     if predictor is None:
         return {
             "loaded": False,
-            "error": "Predictor not initialized"
+            "status": "waiting_for_first_request",
+            "language_labels": LANGUAGE_LABELS,
+            "accent_labels": ACCENT_LABELS
         }
     
     return {
@@ -182,11 +194,14 @@ async def analyze_audio(audio: UploadFile = File(...)):
     if not any(t in content_type for t in ['audio', 'webm', 'wav', 'mp3', 'ogg']):
         logger.warning(f"Unexpected content type: {content_type}")
     
+    # Lazy load models
+    current_predictor = get_predictor()
+    
     # Check if models are loaded
-    if predictor is None or not predictor.models_loaded:
+    if current_predictor is None or not current_predictor.models_loaded:
         raise HTTPException(
             status_code=503,
-            detail="Models not loaded. Please train the models first."
+            detail="Models could not be loaded. Please check server logs."
         )
     
     try:
@@ -199,7 +214,7 @@ async def analyze_audio(audio: UploadFile = File(...)):
         logger.info(f"📥 Received audio: {audio.filename} ({len(audio_data)} bytes)")
         
         # Run prediction
-        result = predictor.predict(audio_data)
+        result = current_predictor.predict(audio_data)
         
         # Format response - convert lists to numpy arrays for argmax/max
         import numpy as np
