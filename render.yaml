@@ -1,34 +1,11 @@
-# render.yaml - Configuración para desplegar en Render.com
-# Documentación: https://render.com/docs/blueprint-spec
-
-# Lista de servicios a desplegar
 services:
-  # Servicio web principal (backend Python)
   - type: web
-    # Nombre del servicio en el dashboard de Render
     name: epigrafia-backend
-    # Runtime de Python (Render detecta automáticamente el lenguaje)
-    runtime: python
-    # Región del servidor (Frankfurt - Europa)
-    region: frankfurt
-    # Plan gratuito de Render
-    plan: free
-    # Rama de Git desde la que se despliega
-    branch: main
-    # Comando de compilación: instala las dependencias
+    runtime: python3.10
     buildCommand: pip install -r requirements.txt
-    # Comando de inicio: ejecuta el servidor con Gunicorn
-    # $PORT es proporcionado automáticamente por Render
-    startCommand: gunicorn main:app --preload --workers 1 --bind 0.0.0.0:$PORT
-    # Despliegue automático cuando hay cambios en el repositorio
-    autoDeploy: true
-    # Variables de entorno (opcional)
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT
     envVars:
-      # Especifica la versión de Python a usar
-      - key: PYTHON_VERSION
-        value: "3.10"
-      # Modo de producción
-      - key: ENVIRONMENT
-        value: production
-    # Healthcheck para verificar que el servicio está activo
-    healthCheckPath: /health
+      - key: PORT
+        value: 8000
+    plan: free
+    autoDeploy: true
