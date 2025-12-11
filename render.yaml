@@ -2,7 +2,7 @@ services:
   - type: web
     name: epigrafia-backend
     runtime: python
-    buildCommand: pip install -r backend/hf_requirements.txt && pip install gunicorn
+    buildCommand: pip install --no-cache-dir -r backend/hf_requirements.txt && pip install --no-cache-dir gunicorn
     startCommand: gunicorn -k uvicorn.workers.UvicornWorker backend.app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PORT
