@@ -24,7 +24,7 @@ import uvicorn
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from predict import AudioPredictor
+from backend.predict import AudioPredictor
 
 # ============================================
 # Configuration
