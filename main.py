@@ -37,9 +37,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Paths
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 
+language_model_path = MODELS_DIR / "language_model.keras"
+accent_model_path = MODELS_DIR / "accent_model.keras"
+if not accent_model_path.exists():
+    accent_model_path = None
 
 # Labels for predictions
 LANGUAGE_LABELS = ['EspaÃ±ol', 'InglÃ©s', 'FrancÃ©s', 'AlemÃ¡n']
