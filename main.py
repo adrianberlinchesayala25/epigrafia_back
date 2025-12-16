@@ -13,12 +13,13 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
+from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.predict import Predictor
+from backend.predict import AudioPredictor
 
 # ========================================
 # Configuración de logging
@@ -38,7 +39,15 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'   # Reduce logs de TensorFlow
 # ========================================
 # Variables globales
 # ========================================
-predictor: Optional[Predictor] = None
+predictor: Optional[AudioPredictor] = None
+
+# Mapeo de índices a idiomas
+LANGUAGE_NAMES = {
+    0: "español",
+    1: "inglés",
+    2: "francés",
+    3: "alemán"
+}
 
 # ========================================
 # Lifecycle events
@@ -51,8 +60,16 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting EpigrafIA API...")
     try:
-        predictor = Predictor()
+        # Buscar modelo
+        model_path = Path("models/language_model.keras")
+        if not model_path.exists():
+            logger.error(f"❌ Model not found at {model_path}")
+            raise FileNotFoundError(f"Model not found: {model_path}")
+        
+        # Cargar modelo
+        predictor = AudioPredictor(language_model_path=model_path)
         logger.info("✅ Models loaded successfully!")
+        
     except Exception as e:
         logger.error(f"❌ Error loading models: {e}")
         raise
@@ -113,7 +130,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "models_loaded": predictor is not None
+        "models_loaded": predictor is not None and predictor.models_loaded
     }
 
 @app.get("/api/models/status")
@@ -123,9 +140,8 @@ async def models_status():
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     return {
-        "language_model": "loaded",
-        "image_model": "loaded",
-        "status": "ready"
+        "language_model": "loaded" if predictor.language_model else "not loaded",
+        "status": "ready" if predictor.models_loaded else "not ready"
     }
 
 @app.post("/api/analyze")
@@ -134,12 +150,12 @@ async def analyze_audio(audio: UploadFile = File(...)):
     Analyze audio file and predict language
     
     Args:
-        audio: Audio file (wav, mp3, etc.)
+        audio: Audio file (wav, mp3, webm, etc.)
     
     Returns:
         JSON with language predictions
     """
-    if not predictor:
+    if not predictor or not predictor.models_loaded:
         raise HTTPException(
             status_code=503,
             detail="Models not loaded. Please try again later."
@@ -147,15 +163,38 @@ async def analyze_audio(audio: UploadFile = File(...)):
     
     try:
         # Read audio file
+        logger.info(f"📥 Receiving audio: {audio.filename} ({audio.content_type})")
         audio_bytes = await audio.read()
+        logger.info(f"📊 Audio size: {len(audio_bytes)} bytes")
         
         # Predict
-        result = predictor.predict(audio_bytes)
+        result = predictor.predict_language(audio_bytes)
         
-        return JSONResponse(content=result)
+        # Format response
+        language_idx = result['language_prediction']
+        language_name = LANGUAGE_NAMES.get(language_idx, f"unknown_{language_idx}")
+        
+        # Build probabilities dict
+        probabilities = {}
+        for idx, prob in enumerate(result['language_probabilities']):
+            lang_name = LANGUAGE_NAMES.get(idx, f"unknown_{idx}")
+            probabilities[lang_name] = float(prob)
+        
+        formatted_result = {
+            "language": {
+                "detected": language_name,
+                "confidence": float(result['language_confidence']),
+                "probabilities": probabilities
+            },
+            "status": "success"
+        }
+        
+        logger.info(f"✅ Prediction: {language_name} (confidence: {result['language_confidence']:.2%})")
+        
+        return JSONResponse(content=formatted_result)
         
     except Exception as e:
-        logger.error(f"Error processing audio: {e}")
+        logger.error(f"❌ Error processing audio: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error processing audio: {str(e)}"
@@ -167,20 +206,23 @@ async def api_docs():
     return {
         "title": "EpigrafIA API Documentation",
         "version": "1.0.0",
+        "description": "API para detección de idioma en audio",
+        "supported_languages": list(LANGUAGE_NAMES.values()),
         "endpoints": [
             {
                 "path": "/api/analyze",
                 "method": "POST",
                 "description": "Analyze audio and predict language",
                 "parameters": {
-                    "audio": "Audio file (multipart/form-data)"
+                    "audio": "Audio file (multipart/form-data) - WAV, MP3, WebM, etc."
                 },
                 "response": {
                     "language": {
-                        "detected": "string",
-                        "confidence": "float",
-                        "probabilities": "object"
-                    }
+                        "detected": "string (español, inglés, francés, alemán)",
+                        "confidence": "float (0-1)",
+                        "probabilities": "object with all language probabilities"
+                    },
+                    "status": "string"
                 }
             },
             {
@@ -209,6 +251,7 @@ async def not_found_handler(request, exc):
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
+    logger.error(f"Internal error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"error": "Internal server error"}
