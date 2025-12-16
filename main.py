@@ -95,12 +95,12 @@ app = FastAPI(
 # ========================================
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:4321"
+    "http://localhost:3000,http://localhost:4321,https://epigrafiafrontend-fe01u5o3d-adrianberlinchesayala25s-projects.vercel.app,https://*.vercel.app"
 ).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],  # ⚠️ Temporal - permite todos los orígenes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
